@@ -13,6 +13,25 @@ module.exports = {
       if (err) return res.negotiate(err);
       if (!found) return res.notFound();
 
+      // Tutorial.find({
+      //   where: {
+      //     or : [
+      //       {
+      //         title: {
+      //           'contains': req.param('searchCriteria')
+      //         },
+      //       },
+      //       {
+      //         description: {
+      //           'contains': req.param('searchCriteria')
+      //         }
+      //       }
+      //     ],
+      //   },
+      //   limit: 10,
+      //   skip: req.param('skip')
+      // });
+
       Tutorial.find({
         or : [
           {
@@ -30,47 +49,100 @@ module.exports = {
         skip: req.param('skip')
       })
       .populate('owner')
-      .populate('ratings')
+      // .populate('ratings') >> there could be 1,000,000 ratings--- so instead see below
       .populate('videos')
       .exec(function(err, tutorials){
+        if (err) return res.negotiate(err);
 
-        // Iterate through tutorials to format the owner and created attributes
-        _.each(tutorials, function(tutorial){
+        // >>>> instead of populating ratings
 
-          tutorial.owner = tutorial.owner.username;
-          tutorial.created = DatetimeService.getTimeAgo({date: tutorial.createdAt});
+        // If Waterline didn't support `.average()`, or any feature for that matter,
+        // or if you aren't happy with the performance, you should would fall back to the following:
+        // - Talk directly to the database using `.query()` or `.native()`.  That might not work because you might need access to the raw database connection (e.g. for a transaction)
+        // - Otherwise, you `require()` and use the raw driver directly (e.g. https://www.npmjs.com/package/mysql)
+        // =============> Eventually, you'll be able to use the next generation of Waterline adapters directly, instead of having to fall back to using the native driver (e.g. `machinepack-mysql`)  Of course you can always use the native query.
 
-          // Determine the total seconds for all videos and each video
-          var totalSeconds = 0;
-          _.each(tutorial.videos, function(video){
+        // Find the average rating of the tutorials we located above.
+        Rating.find({
+          where: {
+            // This is an IN query:
+            // Docs: https://github.com/balderdashy/waterline-docs/blob/master/queries/query-language.md#in-pairs
+            byTutorial: _.pluck(tutorials, 'id')
+            // e.g.
+            // byTutorial: [3,2,83,313,1]
+            
+            // 
+            // or:[
+            //   { byTutorial: tutorials[0].id },
+            //   { byTutorial: tutorials[1].id },
+            //   { byTutorial: tutorials[2].id },
+            //   { byTutorial: tutorials[3].id },
+            //   // ..
+            // ]
+          }
+        })
+        // Docs: https://github.com/balderdashy/waterline-docs/blob/master/queries/query-methods.md#average-attribute-
+        //
+        // e.g. in a SQL database, this might generate something like:
+        // ```
+        // SELECT AVG(stars) FROM Tutorial WHERE `byTutorial` IN 3,2,83,313,1;
+        // ```
+        .average('stars').exec(function(err, averageStarRating) {
+          if (err) return res.negotiate(err);
 
-            // Total the number of seconds for all videos for tutorial total time
-            totalSeconds = totalSeconds + video.lengthInSeconds;
+          // The averageStarRating comes in a little funny.
+          console.log('averageStarRating: ', averageStarRating);
+          try {
+            averageStarRating = averageStarRating[0].stars;
+          }
+          catch (e) { return res.negotiate(err); }
 
+          // Iterate through tutorials to format the owner and created attributes
+          _.each(tutorials, function(tutorial){
+
+            tutorial.owner = tutorial.owner.username;
+            tutorial.created = DatetimeService.getTimeAgo({date: tutorial.createdAt});
+
+            // Determine the total seconds for all videos and each video
+            var totalSeconds = 0;
+            _.each(tutorial.videos, function(video){
+
+              // Total the number of seconds for all videos for tutorial total time
+              totalSeconds = totalSeconds + video.lengthInSeconds;
+
+            });//</each video>
+
+            // Now format and expose the total combined play time on the
+            // tutorial dictionary.
             tutorial.totalTime = DatetimeService.getHoursMinutesSeconds({totalSeconds: totalSeconds}).hoursMinutesSeconds;
 
+            // And finally use the average rating we queried 
+            tutorial.averageRating = averageStarRating;
+
+            // See new aggregate query above
             // Format average ratings
-            var totalRating = 0;
-            _.each(tutorial.ratings, function(rating){
-              totalRating = totalRating + rating.stars;
-            });
+            // var totalRating = 0;
+            // _.each(tutorial.ratings, function(rating){
+            //   totalRating = totalRating + rating.stars;
+            // });
 
-            var averageRating = 0;
-            if (tutorial.ratings.length < 1) {
-              averageRating = 0;
-            } else {
-              averageRating = totalRating / tutorial.ratings.length;
-            }
+            // var averageRating = 0;
+            // if (tutorial.ratings.length < 1) {
+            //   averageRating = 0;
+            // } else {
+            //   averageRating = totalRating / tutorial.ratings.length;
+            // }
             
-            tutorial.averageRating = averageRating;
-          });
-        });
+            // tutorial.averageRating = averageRating;
+          });//</each tutorial>
 
-        return res.json({
-          options: {
-            totalTutorials: found,
-            updatedTutorials: tutorials
-          }
+          return res.json({
+            options: {
+              totalTutorials: found,
+              updatedTutorials: tutorials
+            }
+          });//</res.json>
+
         });
       });
     });
@@ -353,6 +425,11 @@ module.exports = {
       if (foundTutorial.owner.id !== req.session.userId) {
         return res.forbidden();
       }
+
+      // Count the videos currently in this tutorial and ensure that adding a new one
+      // wouldn't exceed our arbitrary limit of 25.
+      var MAX_NUM_VIDEOS_PER_TUTORIAL = 25;
+      // TODO
 
       // Create the video record.
       Video.create({

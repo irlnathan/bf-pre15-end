@@ -72,6 +72,11 @@
     <script src="/js/controllers/tutorialsDetailVideoEditPageController.js"></script>
     <script src="/js/controllers/tutorialsDetailVideoNewPageController.js"></script>
     <!--SCRIPTS END-->
+    <script type="text/javascript">
+      io.sails.headers = {
+        'x-csrf-token': window.SAILS_LOCALS._csrf
+      }
+    </script>
   </div>
 </body>
 </html>

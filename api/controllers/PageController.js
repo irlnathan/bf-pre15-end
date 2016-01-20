@@ -983,33 +983,73 @@ module.exports = {
     });
   },
 
+
+  /**
+   THIS ACTION IS AN EXAMPLE OF HOW TO SOLVE "POPULATE DEEP"
+  */
   showVideo: function(req, res) {
 
     // Find the video to play and populate the video `chat` association
     Video.findOne({
       id: +req.param('id')
     })
-    .populate('chats')
+    .populate('chats', {
+      // Adding this criteria solves the memory overflow problem
+      // (only get 30 most recent chats for this video)
+      //
+      // This is where we need to have a caveat/sidebar thing:
+      // 
+      // > Combining limit or skip AND sort as the second arg to populate()
+      // > is only fully supported if both models live in the same database.
+      // > It will still work across multiple databases (maybe), but it is experimental.
+      limit: 30,
+      sort: 'createdAt ASC'
+    })
     .exec(function (err, foundVideo){
       if (err) return res.negotiate(err);
       if (!foundVideo) return res.notFound();
 
-      //Format each chat with the username, gravatarURL, and created date in timeago format
-      async.each(foundVideo.chats, function(chat, next){
+      // We pull out a single query that fetches senders of all chats
+      // we found above (rather than querying the database once for each chat)
+      User.find({
+        // IN query introduced here
+        id: _.pluck(foundVideo.chats, 'sender')
+      }).exec(function (err, foundUsers){
+        if (err) return next(err);
 
-        User.findOne({
-          id: chat.sender
-        }).exec(function (err, foundUser){
-          if (err) return next(err);
+        // Format each chat with the username and gravatarURL of the sender,
+        // as well as formatting the created date in timeago format.
+        _.each(foundVideo.chats, function (chat) {
 
-          chat.username = foundUser.username;
+          // Look up the user who sent this chat from our array of `foundUsers`
+          // we looked up above (this was just to make it more efficient)
+          var sender = _.find(foundUsers, { id: chat.sender });
+
+          // Now add the sender's username and gravatarURL to the chat
+          chat.username = sender.username;
+          chat.gravatarURL = sender.gravatarURL;
+
+          // Add the `created` property in timeago format.
           chat.created = DatetimeService.getTimeAgo({date: chat.createdAt});
-          chat.gravatarURL = foundUser.gravatarURL;
-          return next();
         });
 
-      }, function(err) {
-        if (err) return res.negotiate(err);
+      // //Format each chat with the username and gravatarURL of the sender,
+      // // as well as formatting the created date in timeago format.
+      // async.each(foundVideo.chats, function(chat, next){
+
+      //   User.findOne({
+      //     id: chat.sender
+      //   }).exec(function (err, foundUser){
+      //     if (err) return next(err);
+
+      //     chat.username = foundUser.username;
+      //     chat.created = DatetimeService.getTimeAgo({date: chat.createdAt});
+      //     chat.gravatarURL = foundUser.gravatarURL;
+      //     return next();
+      //   });
+
+      // }, function(err) {
+        // if (err) return res.negotiate(err);
 
         /*
             _____                                      
