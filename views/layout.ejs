@@ -41,14 +41,15 @@
     <!--TEMPLATES-->
     
     <!--TEMPLATES END-->
+
+    <script src="/js/dependencies/sails.io.js" headers='{"x-csrf-token":<%- typeof _csrf !== 'undefined' ? JSON.stringify(_csrf) : 'null' %>}'></script>
     <!--SCRIPTS-->
-    <script src="/js/dependencies/sails.io.js"></script>
     <script src="/js/dependencies/angular.js"></script>
     <script src="/js/dependencies/jquery-1.11.2.min.js"></script>
+    <script src="/js/dependencies/lodash.js"></script>
     <script src="/js/dependencies/angular-toastr.js"></script>
     <script src="/js/dependencies/bootstrap.js"></script>
     <script src="/js/dependencies/compareTo.module.js"></script>
-    <script src="/js/dependencies/lodash.js"></script>
     <script src="/js/dependencies/ui-bootstrap-tpls.js"></script>
     <script src="/js/app.js"></script>
     <script src="/js/controllers/adminUsersPageController.js"></script>
